@@ -1,1 +1,5 @@
 .vscode
+
+# CSV outputs from circular_tickets.py
+circular_tickets.csv
+circular_by_gateway.csv

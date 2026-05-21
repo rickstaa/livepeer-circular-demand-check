@@ -38,12 +38,26 @@ Optional flags:
 
 ## Output
 
-Console: grand total (count, ETH, USD) plus a per-gateway breakdown.
+Console:
+
+- **Total protocol fees** in the selected window (ETH + USD)
+- **Circular fees** (self-payments) in the same window — count, ETH, USD
+- **Circular share** — circular fees as a percentage of total protocol fees
+- **Per-gateway breakdown** sorted USD-descending
 
 Two CSVs:
 
 - `circular_tickets.csv` — one row per matched event (`timestamp_utc`, `tx_hash`, `sender_recipient`, `face_value_eth`, `face_value_usd`)
 - `circular_by_gateway.csv` — per-sender aggregates sorted USD-descending
+
+### How USD values are computed
+
+USD figures are the **spot value at ticket-redemption time**, as recorded by
+the subgraph when each `WinningTicketRedeemed` event was indexed. Nothing is
+marked-to-current — a ticket redeemed at $3000/ETH still counts as $3000/ETH
+in this report, even if ETH is $4000 today. This applies to both the total
+protocol fees and the circular total, so the percentage comparison is
+apples-to-apples within the window.
 
 ## How it works
 

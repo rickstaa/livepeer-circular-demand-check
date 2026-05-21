@@ -5,20 +5,30 @@ WinningTicketRedeemed events where the sender (gateway/broadcaster) address
 equals the recipient (orchestrator/transcoder) address — i.e. an operator
 paying fees to themselves.
 
-Sums totals overall and per gateway, and writes two CSVs:
+Reports:
+  - total protocol fees in the selected window
+  - circular (self-payment) fees in the same window
+  - circular share of total (%)
+  - per-gateway breakdown
+
+Writes two CSVs:
   circular_tickets.csv      every matching event
   circular_by_gateway.csv   per-sender aggregates
+
+USD values use the spot price recorded by the subgraph at ticket redemption
+time. They are NOT marked-to-current — a ticket redeemed at $3000/ETH stays
+$3000/ETH in this report.
 
 Env:
   THEGRAPH_API_KEY   required, from https://thegraph.com/studio/apikeys/
 
 Install:
-  pip install -r scripts/requirements.txt
+  pip install -r requirements.txt
 
 Usage:
-  python scripts/circular_tickets.py
-  python scripts/circular_tickets.py --since 30d
-  python scripts/circular_tickets.py --since 2025-01-01
+  python circular_tickets.py
+  python circular_tickets.py --since 30d
+  python circular_tickets.py --since 2025-01-01
 """
 
 import argparse
@@ -77,6 +87,34 @@ TRANSCODERS_QUERY = gql(
     """
 )
 
+PROTOCOL_TOTALS_QUERY = gql(
+    """
+    query ProtocolTotals {
+      protocol(id: "0") {
+        totalVolumeETH
+        totalVolumeUSD
+      }
+    }
+    """
+)
+
+DAYS_QUERY = gql(
+    """
+    query Days($lastDate: Int!, $first: Int!, $sinceTs: Int!) {
+      days(
+        first: $first,
+        where: { date_gt: $lastDate, date_gte: $sinceTs },
+        orderBy: date,
+        orderDirection: asc
+      ) {
+        date
+        volumeETH
+        volumeUSD
+      }
+    }
+    """
+)
+
 SELF_REDEMPTIONS_QUERY = gql(
     """
     query SelfRedemptions(
@@ -105,6 +143,37 @@ SELF_REDEMPTIONS_QUERY = gql(
     }
     """
 )
+
+
+def fetch_total_fees(client, since_ts):
+    """Total protocol fees in the selected window.
+
+    All-time: single Protocol singleton lookup.
+    Windowed: paginate Day entities and sum volumeETH / volumeUSD.
+    """
+    if since_ts == 0:
+        data = client.execute(PROTOCOL_TOTALS_QUERY)
+        p = data["protocol"]
+        return float(p["totalVolumeETH"]), float(p["totalVolumeUSD"])
+
+    total_eth = 0.0
+    total_usd = 0.0
+    last_date = since_ts - 1  # cursor; first batch picks up days with date >= since_ts
+    while True:
+        data = client.execute(
+            DAYS_QUERY,
+            variable_values={"lastDate": last_date, "first": PAGE, "sinceTs": since_ts},
+        )
+        batch = data["days"]
+        if not batch:
+            break
+        for d in batch:
+            total_eth += float(d["volumeETH"])
+            total_usd += float(d["volumeUSD"])
+        if len(batch) < PAGE:
+            break
+        last_date = int(batch[-1]["date"])
+    return total_eth, total_usd
 
 
 def fetch_all_transcoders(client):
@@ -168,8 +237,18 @@ def main():
             file=sys.stderr,
         )
 
+    main_client = build_client()
+
+    print("Fetching protocol totals for window...", file=sys.stderr)
+    total_protocol_eth, total_protocol_usd = fetch_total_fees(main_client, since_ts)
+    print(
+        f"  {total_protocol_eth:.6f} ETH (${total_protocol_usd:,.2f}) "
+        f"— at spot price when each ticket was redeemed",
+        file=sys.stderr,
+    )
+
     print("Fetching transcoder list...", file=sys.stderr)
-    transcoders = fetch_all_transcoders(build_client())
+    transcoders = fetch_all_transcoders(main_client)
     print(f"  {len(transcoders)} transcoders with non-zero fee volume", file=sys.stderr)
 
     all_events = []
@@ -220,9 +299,24 @@ def main():
         for s, a in sorted(per_gw.items(), key=lambda kv: -kv[1]["usd"]):
             w.writerow([s, a["count"], f"{a['eth']:.6f}", f"{a['usd']:.2f}"])
 
+    pct_eth = (total_eth / total_protocol_eth * 100) if total_protocol_eth > 0 else 0.0
+    pct_usd = (total_usd / total_protocol_usd * 100) if total_protocol_usd > 0 else 0.0
+
+    window_label = (
+        f"since {datetime.fromtimestamp(since_ts, tz=timezone.utc).date().isoformat()}"
+        if since_ts else "all-time"
+    )
+
     print()
-    print(f"Circular tickets (sender == recipient): {total_n}")
-    print(f"  Total: {total_eth:.6f} ETH (${total_usd:,.2f})")
+    print(f"Window: {window_label}")
+    print(f"  USD values are spot at ticket redemption (not current price).")
+    print()
+    print(f"Total protocol fees: {total_protocol_eth:.6f} ETH (${total_protocol_usd:,.2f})")
+    print(
+        f"Circular fees:       {total_eth:.6f} ETH (${total_usd:,.2f}) "
+        f"across {total_n} tickets"
+    )
+    print(f"Circular share:      {pct_eth:.2f}% of ETH  |  {pct_usd:.2f}% of USD")
     print()
     print(f"Per-gateway breakdown ({len(per_gw)} addresses):")
     for s, a in sorted(per_gw.items(), key=lambda kv: -kv[1]["usd"]):
