@@ -1,5 +1,9 @@
 .vscode
 
-# CSV outputs from circular_tickets.py
+# CSV outputs
 circular_tickets.csv
 circular_by_gateway.csv
+mapped_tickets.csv
+
+# Local operator mapping (use operators.example.json as a template)
+operators.json

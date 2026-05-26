@@ -1,3 +1,4 @@
 gql[requests]
 requests-toolbelt
 tqdm
+web3

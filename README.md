@@ -77,4 +77,66 @@ This only catches **literal** self-payments (`sender == recipient` on-chain).
 Operators running a gateway and an orchestrator under **different** addresses
 will not show up — detecting that requires an external operator-to-address
 mapping or clustering heuristics.
-# livepeer-circular-demand-check
+
+---
+
+## Mapped operators: `mapped_tickets.py`
+
+To catch the broader case where an operator runs gateways and orchestrators
+under **different** addresses, supply an external mapping and run
+`mapped_tickets.py`. It queries `WinningTicketRedeemed` events where the
+sender is one of the operator's gateways and the recipient is one of the
+same operator's orchestrators, and reports the per-operator and combined
+share of total protocol fees.
+
+### Mapping format
+
+Copy `operators.example.json` to `operators.json` and edit:
+
+```json
+[
+  {
+    "name": "operator-a",
+    "gateways":      ["0x...", "0x..."],
+    "orchestrators": ["0x..."]
+  }
+]
+```
+
+You can list as many operators as you like. The address sets can be derived
+however you want — explorer.livepeer.org broadcasting/orchestrator pages,
+livepeer.tools, ServiceRegistry / AIServiceRegistry ServiceURI hostnames,
+or off-chain disclosure.
+
+`operators.json` is gitignored; `operators.example.json` is checked in as a
+template.
+
+### Helper: discovering orchs by ServiceURI
+
+`fetch_registry_orchs.py` scans the on-chain `ServiceRegistry` and
+`AIServiceRegistry` for every address that has ever set a `ServiceURI`
+matching a caller-supplied substring. Useful when you suspect an operator
+runs many orchestrators under one hostname.
+
+```bash
+python fetch_registry_orchs.py --match example.com
+# writes registry_orchs.json — paste matched addresses into operators.json
+```
+
+An archive RPC (Alchemy/Infura/Ankr) is strongly recommended over the
+public Arbitrum RPC for full-history scans.
+
+### Run
+
+```bash
+python mapped_tickets.py --operators operators.json
+python mapped_tickets.py --operators operators.json --since 30d
+python mapped_tickets.py --operators operators.json --since 2025-01-01
+```
+
+Output:
+
+- Console: per-operator fee totals, per-(sender, recipient) breakdown,
+  and each operator's share of total protocol fees in the window.
+- `mapped_tickets.csv` — one row per matched event with an `operator`
+  column.

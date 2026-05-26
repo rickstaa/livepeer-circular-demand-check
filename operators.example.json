@@ -1,0 +1,12 @@
+[
+  {
+    "name": "operator-a",
+    "gateways": [
+      "0xc3c7c4c8f7061b7d6a72766eee5359fe4f36e61e",
+      "0xca3331d67e87816adb30d9562a6e8c0623fb7fef"
+    ],
+    "orchestrators": [
+      "0x180859c337d14edf588c685f3f7ab4472ab6a252"
+    ]
+  }
+]
